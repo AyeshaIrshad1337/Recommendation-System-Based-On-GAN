@@ -1,0 +1,3 @@
+https://medium.com/hepsiburada-data-science/personalized-recommendations-with-transformers-11c13cff2be  
+Transformer RS
+https://towardsdatascience.com/transformer-based-real-time-recommendation-at-scribd-5fa05f000c47
