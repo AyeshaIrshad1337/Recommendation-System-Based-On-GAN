@@ -1,7 +1,7 @@
 from utils.data_loader import load_data, split_data, interaction_matrix
-from model.bpr import BPR
+from BPR.bpr import BPR
 from utils.evaluation import precision_at_k, recall_at_k, hit_ratio_at_k, ndcg_at_k, map_at_k, f1_score_at_k
-
+from APR.apr import APR
 
 def main():
     df = load_data('./data/ratings.csv')
@@ -9,7 +9,7 @@ def main():
     interactions_matrix = interaction_matrix(train)
 
     n_users, n_items = interactions_matrix.shape
-    model = BPR(n_users, n_items, n_factors=10, n_epochs=50)
+    model = APR(n_users, n_items, n_factors=10, n_epochs=50)
     model.fit(interactions_matrix.values)
     
     test_interactions = interaction_matrix(test)

@@ -37,12 +37,17 @@ def ndcg_at_k(model, interactions, k):
     ndcgs = []
     for user in range(interactions.shape[0]):
         user_interactions = interactions[user].nonzero()[0]
+        if len(user_interactions) == 0:
+            continue
         scores = [(item, model.predict(user, item)) for item in range(interactions.shape[1])]
         scores.sort(key=lambda x: x[1], reverse=True)
         top_k = [item for item, _ in scores[:k]]
         relevance_scores = [1 if item in user_interactions else 0 for item in top_k]
         ideal_relevance_scores = sorted(relevance_scores, reverse=True)
-        ndcgs.append(dcg(relevance_scores) / dcg(ideal_relevance_scores))
+        if dcg(ideal_relevance_scores) == 0:
+            ndcgs.append(0)
+        else:
+            ndcgs.append(dcg(relevance_scores) / dcg(ideal_relevance_scores))
     return np.mean(ndcgs)
 
 def map_at_k(model, interactions, k):
@@ -64,13 +69,11 @@ def map_at_k(model, interactions, k):
             aps.append(0)
     return np.mean(aps)
 
+
 def f1_score_at_k(model, interactions, k):
-    precisions = precision_at_k(model, interactions, k)
-    recalls = recall_at_k(model, interactions, k)
-    f1_scores = []
-    for precision, recall in zip(precisions, recalls):
-        if precision + recall == 0:
-            f1_scores.append(0)
-        else:
-            f1_scores.append(2 * (precision * recall) / (precision + recall))
-    return np.mean(f1_scores)
+    precision = precision_at_k(model, interactions, k)
+    recall = recall_at_k(model, interactions, k)
+    if precision + recall == 0:
+        return 0
+    else:
+        return 2 * (precision * recall) / (precision + recall)
