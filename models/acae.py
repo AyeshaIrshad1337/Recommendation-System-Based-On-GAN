@@ -1,3 +1,4 @@
+import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, Model
 
@@ -68,5 +69,17 @@ class ACAE:
 
             print(f"{epoch + 1}/{epochs} [D loss: {d_loss[0]}, acc.: {100 * d_loss[1]}%] [G loss: {g_loss}]")
 
-    def predict(self, user_vector):
-        return self.autoencoder.predict(user_vector)
+    def predict(self, vector):
+        # Input should be an interaction vector of items
+        return self.autoencoder.predict(vector)
+    def recommend(self, user, user_items, N=10, filter_already_liked_items=True):
+        user_vector = np.zeros((1, self.num_items))
+        user_vector[0, user_items[user].nonzero()[1]] = 1
+        scores = self.predict(user_vector).flatten()
+        
+        if filter_already_liked_items:
+            liked_items = user_items[user].nonzero()[1]
+            scores[liked_items] = -np.inf
+        
+        top_items = np.argsort(-scores)[:N]
+        return [(item, scores[item]) for item in top_items]

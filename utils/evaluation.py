@@ -7,22 +7,25 @@ def precision_at_k(model, interactions, k):
         if hasattr(model, 'autoencoder'):
             scores = model.predict(np.array([interactions[user]])).flatten()
         else:
-            scores = model.predict(np.array([user]), np.arange(interactions.shape[1])).numpy().reshape(-1)
+            scores = model.predict(np.array([user]), np.arange(interactions.shape[1])).reshape(-1)
         top_k = np.argsort(scores)[-k:][::-1]
         precisions.append(len(set(top_k) & set(user_interactions)) / k)
     return np.mean(precisions)
 
 def recall_at_k(model, interactions, k):
     recalls = []
+    num_users, num_items = interactions.shape
     for user in range(interactions.shape[0]):
+        print(user)
         user_interactions = interactions[user].nonzero()[0]
         if hasattr(model, 'autoencoder'):
             scores = model.predict(np.array([interactions[user]])).flatten()
         else:
-            scores = model.predict(np.array([user]), np.arange(interactions.shape[1])).numpy().reshape(-1)
+            scores = model.predict(np.array([user]), np.arange(num_items)).reshape(-1)
         top_k = np.argsort(scores)[-k:][::-1]
-        recalls.append(len(set(top_k) & set(user_interactions)) / len(user_interactions))
+        recalls.append(len(set(top_k) & set(user_interactions)) / len(user_interactions) if len(user_interactions) > 0 else 0)
     return np.mean(recalls)
+
 
 def hit_ratio_at_k(model, interactions, k):
     hit_ratios = []
@@ -31,7 +34,7 @@ def hit_ratio_at_k(model, interactions, k):
         if hasattr(model, 'autoencoder'):
             scores = model.predict(np.array([interactions[user]])).flatten()
         else:
-            scores = model.predict(np.array([user]), np.arange(interactions.shape[1])).numpy().reshape(-1)
+            scores = model.predict(np.array([user]), np.arange(interactions.shape[1])).reshape(-1)
         top_k = np.argsort(scores)[-k:][::-1]
         hit_ratios.append(1.0 if len(set(top_k) & set(user_interactions)) > 0 else 0.0)
     return np.mean(hit_ratios)
@@ -48,7 +51,7 @@ def ndcg_at_k(model, interactions, k):
         if hasattr(model, 'autoencoder'):
             scores = model.predict(np.array([interactions[user]])).flatten()
         else:
-            scores = model.predict(np.array([user]), np.arange(interactions.shape[1])).numpy().reshape(-1)
+            scores = model.predict(np.array([user]), np.arange(interactions.shape[1])).reshape(-1)
         top_k = np.argsort(scores)[-k:][::-1]
         relevance_scores = [1 if item in user_interactions else 0 for item in top_k]
         ideal_relevance_scores = sorted(relevance_scores, reverse=True)
@@ -65,7 +68,7 @@ def map_at_k(model, interactions, k):
         if hasattr(model, 'autoencoder'):
             scores = model.predict(np.array([interactions[user]])).flatten()
         else:
-            scores = model.predict(np.array([user]), np.arange(interactions.shape[1])).numpy().reshape(-1)
+            scores = model.predict(np.array([user]), np.arange(interactions.shape[1])).reshape(-1)
         top_k = np.argsort(scores)[-k:][::-1]
         hits = 0
         precisions = []

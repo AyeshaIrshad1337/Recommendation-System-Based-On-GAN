@@ -64,3 +64,13 @@ class CollaGAN:
 
     def predict(self, user_vector):
         return self.generator.predict(user_vector)
+    def recommend(self, user, user_items, N=10, filter_already_liked_items=True):
+        user_vector = np.eye(self.num_users)[user:user+1]
+        scores = self.predict(user_vector).flatten()
+        
+        if filter_already_liked_items:
+            liked_items = user_items[user].nonzero()[1]
+            scores[liked_items] = -np.inf
+        
+        top_items = np.argsort(-scores)[:N]
+        return [(item, scores[item]) for item in top_items]
