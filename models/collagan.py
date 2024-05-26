@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, Model
-
+from utils.evaluation import eval_at_k, map, f1_score_at_k
 class CollaGAN:
     def __init__(self, num_users, num_items, embedding_dim):
         self.num_users = num_users
@@ -43,7 +43,7 @@ class CollaGAN:
     def train(self, interaction_matrix, epochs, batch_size=128):
         real = np.ones((batch_size, 1))
         fake = np.zeros((batch_size, 1))
-
+        precisions, recalls, ndcgs, hits, f1_scores, map_scores = [], [], [], [], [], []
         for epoch in range(epochs):
             idx = np.random.randint(0, interaction_matrix.shape[0], batch_size)
             user_batch = np.eye(self.num_users)[idx]  # Create one-hot encoding of users
@@ -61,7 +61,14 @@ class CollaGAN:
             g_loss = self.gan.train_on_batch(user_batch, real)
 
             print(f"{epoch + 1}/{epochs} [D loss: {d_loss[0]}, acc.: {100 * d_loss[1]}%] [G loss: {g_loss}]")
-
+            precision, recall, ndcg, hit = eval_at_k(self, interaction_matrix, k=10)
+            map_scores.append(map(self, interaction_matrix, k=10))
+            f1_scores.append(f1_score_at_k(self, interaction_matrix, k=10))
+            precisions.append(precision)
+            recalls.append(recall)
+            ndcgs.append(ndcg)
+            hits.append(hit)
+        return precisions, recalls, ndcgs, hits, f1_scores, map_scores
     def predict(self, user_vector):
         return self.generator.predict(user_vector)
     def recommend(self, user, user_items, N=10, filter_already_liked_items=True):

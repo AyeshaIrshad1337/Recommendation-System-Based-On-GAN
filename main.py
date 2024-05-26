@@ -1,103 +1,100 @@
 from utils.data_loader import load_data, split_data, interaction_matrix
 from models.bpr import BPR
-from models.amr import BPRModel, train_amr_step
+from models.amr import BPRModel, train_amr
 from models.collagan import CollaGAN
 from models.acae import ACAE
-from models.apr import APRModel  # Import the APR model
+from models.apr import APRModel,train_apr  
 import numpy as np
 import tensorflow as tf
 import implicit
 from scipy.sparse import csr_matrix
-from utils.evaluation import precision_at_k, recall_at_k, hit_ratio_at_k, ndcg_at_k, map_at_k, f1_score_at_k
-
+from utils.evaluation import evaluate_implicit_model
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 def convert_to_implicit_format(interactions):
     return csr_matrix(interactions)
 
-def dcg(relevance_scores):
-    return np.sum([(2**rel - 1) / np.log2(idx + 2) for idx, rel in enumerate(relevance_scores)])
-
-def map(model, test_interaction, k=10):
-    aps = []
-    for user in range(test_interaction.shape[0]):
-        user_interaction = test_interaction[user].nonzero()[1]
-        if len(user_interaction) == 0:
-            continue
-        scores = model.recommend(user, test_interaction, N=k, filter_already_liked_items=False)
-        top_k_items = [x[0] for x in scores]
-        hits = 0
-        precisions = []
-        for i, item in enumerate(top_k_items):
-            if item in user_interaction:
-                hits += 1
-                precisions.append(hits / (i + 1))
-        if precisions:
-            aps.append(np.mean(precisions))
-        else:
-            aps.append(0)
-    return np.mean(aps)
-
-def eval_at_k(model, test_interactions, k=10):
-    recalls = []
-    precisions = []
-    ndcgs = []
-    for user in range(test_interactions.shape[0]):
-        user_interactions = test_interactions[user].nonzero()[1]
-        if len(user_interactions) == 0:
-            continue
-        scores = model.recommend(user, test_interactions, N=k, filter_already_liked_items=False)
-        top_k_items = [x[0] for x in scores]
-        
-        precisions.append(len(set(top_k_items) & set(user_interactions)) / k)
-        recalls.append(len(set(top_k_items) & set(user_interactions)) / len(user_interactions))
-        relevance_scores = [1 if item in user_interactions else 0 for item in top_k_items]
-        ideal_relevance_scores = sorted(relevance_scores, reverse=True)
-        if dcg(ideal_relevance_scores) == 0:
-            ndcgs.append(0)
-        else:
-            ndcgs.append(dcg(relevance_scores) / dcg(ideal_relevance_scores))
-    return np.mean(precisions), np.mean(recalls), np.mean(ndcgs)
-
-def evaluate_implicit_model(model, train_interactions, test_interactions, k=10):
-    precisions, recalls, ndcgs = eval_at_k(model, test_interactions, k)
-    maps = map(model, test_interactions, k)
+def plot_metrics(precisions, recalls, ndcgs, hits, f1_scores, map_scores, model_name, pdf):
+    epochs = range(1, len(precisions) + 1)
     
-    print(f'Precision@{k}: {precisions}')
-    print(f'Recall@{k}: {recalls}')
-    print(f'NDCG@{k}: {ndcgs}')
-    print(f'MAP@{k}: {maps}')
+    plt.figure(figsize=(18, 18))
+    
+    plt.subplot(2, 3, 1)
+    plt.plot(epochs, precisions, label='Precision')
+    plt.xlabel('Epochs')
+    plt.ylabel('Precision')
+    plt.title(f'{model_name} - Precision over Epochs')
+    plt.legend()
+    
+    plt.subplot(2, 3, 2)
+    plt.plot(epochs, recalls, label='Recall')
+    plt.xlabel('Epochs')
+    plt.ylabel('Recall')
+    plt.title(f'{model_name} - Recall over Epochs')
+    plt.legend()
+    
+    plt.subplot(2, 3, 3)
+    plt.plot(epochs, ndcgs, label='NDCG')
+    plt.xlabel('Epochs')
+    plt.ylabel('NDCG')
+    plt.title(f'{model_name} - NDCG over Epochs')
+    plt.legend()
 
-def train_amr(model, optimizer, interactions, epochs, batch_size):
-    num_training_samples = len(interactions.nonzero()[0])
-    user_inputs = np.random.randint(model.user_embedding.input_dim, size=num_training_samples)
-    pos_item_inputs = np.random.randint(model.item_embedding.input_dim, size=num_training_samples)
-    neg_item_inputs = np.random.randint(model.item_embedding.input_dim, size=num_training_samples)
-
-    for epoch in range(epochs):
-        for start in range(0, num_training_samples, batch_size):
-            end = start + batch_size
-            user_batch = user_inputs[start:end]
-            pos_item_batch = pos_item_inputs[start:end]
-            neg_item_batch = np.random.randint(model.item_embedding.input_dim, size=len(user_batch))
-            
-            loss = train_amr_step(model, optimizer, user_batch, pos_item_batch, neg_item_batch)
-            print(f"Epoch {epoch+1}/{epochs}, Loss: {loss.numpy()}")
-def train_apr(model, optimizer, interactions, epochs, batch_size):
-    num_training_samples = len(interactions.nonzero()[0])
-    user_inputs = np.random.randint(model.num_users, size=num_training_samples)
-    pos_item_inputs = np.random.randint(model.num_items, size=num_training_samples)
-    neg_item_inputs = np.random.randint(model.num_items, size=num_training_samples)
-
-    for epoch in range(epochs):
-        for start in range(0, num_training_samples, batch_size):
-            end = start + batch_size
-            user_batch = user_inputs[start:end]
-            pos_item_batch = pos_item_inputs[start:end]
-            neg_item_batch = np.random.randint(model.num_items, size=len(user_batch))
-            
-            loss, adv_loss = model.train_step(user_batch, pos_item_batch, neg_item_batch, optimizer)
-        
-        print(f"Epoch {epoch + 1}/{epochs}, Loss: {loss.numpy()}, Adv Loss: {adv_loss.numpy()}")
-
+    plt.subplot(2, 3, 4)
+    plt.plot(epochs, hits, label='HIT')
+    plt.xlabel('Epochs')
+    plt.ylabel('HIT')
+    plt.title(f'{model_name} - HIT over Epochs')
+    plt.legend()
+    
+    plt.subplot(2, 3, 5)
+    plt.plot(epochs, f1_scores, label='F1 Score')
+    plt.xlabel('Epochs')
+    plt.ylabel('F1 Score')
+    plt.title(f'{model_name} - F1 Score over Epochs')
+    plt.legend()
+    
+    plt.subplot(2, 3, 6)
+    plt.plot(epochs, map_scores, label='MAP')
+    plt.xlabel('Epochs')
+    plt.ylabel('MAP')
+    plt.title(f'{model_name} - MAP over Epochs')
+    plt.legend()
+    
+    plt.tight_layout()
+    pdf.savefig() 
+    plt.close()  
+def add_evaluation_results_table(model_name, evaluation_results, pdf):
+    fig, ax = plt.subplots(figsize=(10, 2))
+    ax.axis('tight')
+    ax.axis('off')
+    table_data = [
+        ["Metric", "Value"],
+        ["Precision@10", f"{evaluation_results['precision@10']:.4f}"],
+        ["Recall@10", f"{evaluation_results['recall@10']:.4f}"],
+        ["Hit Ratio@10", f"{evaluation_results['hit_ratio@10']:.4f}"],
+        ["NDCG@10", f"{evaluation_results['ndcg@10']:.4f}"],
+        ["MAP@10", f"{evaluation_results['map@10']:.4f}"],
+        ["F1 Score@10", f"{evaluation_results['f1_score@10']:.4f}"]
+    ]
+    table = ax.table(cellText=table_data, colLabels=None, cellLoc='center', loc='center')
+    table.auto_set_font_size(False)
+    table.set_fontsize(12)
+    table.scale(1.2, 1.2)
+    ax.set_title(f'{model_name} - Evaluation Results', fontweight="bold")
+    pdf.savefig()
+    plt.close()
+def evaluate_implicit_model_and_return_results(model, test_interactions):
+    precisions, recalls, ndcgs, hit_ratios, f1_scores, maps = evaluate_implicit_model(model, None, test_interactions, k=10)
+    results = {
+        "precision@10": precisions,
+        "recall@10": recalls,
+        "hit_ratio@10": hit_ratios,
+        "ndcg@10": ndcgs,
+        "map@10": maps,
+        "f1_score@10": f1_scores
+    }
+    return results    
 def main():
     df = load_data('./data/ratings.csv')
     train, test = split_data(df)
@@ -109,47 +106,48 @@ def main():
     train_interactions = convert_to_implicit_format(interactions_matrix.values)
     test_interactions = convert_to_implicit_format(interaction_matrix(test).values)
 
-    # Example: Using BPR model from implicit library
-    model = implicit.bpr.BayesianPersonalizedRanking(factors=10, iterations=50)
-    model.fit(train_interactions)
+    with PdfPages('model_evaluation_plots.pdf') as pdf:
+        # Example: Using BPR model from implicit library
+        model = implicit.bpr.BayesianPersonalizedRanking(factors=10, iterations=50)
+        model.fit(train_interactions)
+        # Evaluate BPR model
+        evaluation_results = evaluate_implicit_model_and_return_results(model, test_interactions)
+        add_evaluation_results_table('BPR Model', evaluation_results, pdf)
 
-    # Evaluate BPR model
-    evaluate_implicit_model(model, train_interactions, test_interactions)
-
-    # Example: Using AMR model
-    bpr_model = BPRModel(n_users, n_items, embedding_dim=10)
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
-    
-    # Train AMR model
-    train_amr(bpr_model, optimizer, interactions_matrix.values, epochs=10, batch_size=256)
-    
-    # Evaluate AMR model
-    evaluate_implicit_model(bpr_model, train_interactions, test_interactions)
-    
-    # Example: Using CollaGAN model
-    collagan = CollaGAN(n_users, n_items, embedding_dim=10)
-    collagan.train(interactions_matrix.values, epochs=50, batch_size=128)
-    
-    # Evaluate CollaGAN model
-    evaluate_implicit_model(collagan, train_interactions, test_interactions)
-    
-    # Example: Using ACAE model
-    acae = ACAE(n_users, n_items, embedding_dim=10)
-    acae.train(interactions_matrix.values, epochs=50, batch_size=128)
-    
-    # Evaluate ACAE model
-    evaluate_implicit_model(acae, train_interactions, test_interactions)
-    
-    # Example: Using APR model
-    apr_model = APRModel(n_users, n_items, embedding_dim=10)
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
-    
-    # Train APR model
-    train_apr(apr_model, optimizer, interactions_matrix.values, epochs=10, batch_size=256)
-    
-    # Evaluate APR model
-    evaluate_implicit_model(apr_model, train_interactions, test_interactions)
-
-
+        # Example: Using AMR model
+        bpr_model = BPRModel(n_users, n_items, embedding_dim=10)
+        optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+        # Train AMR model
+        precisions, recalls, ndcgs, hits, f1_scores, map_scores = train_amr(bpr_model, optimizer, convert_to_implicit_format(interactions_matrix.values), epochs=10, batch_size=256)
+        plot_metrics(precisions, recalls, ndcgs, hits, f1_scores, map_scores, 'AMR Model', pdf)
+        # Evaluate AMR model
+        evaluation_results = evaluate_implicit_model_and_return_results(bpr_model, test_interactions)
+        add_evaluation_results_table('AMR Model', evaluation_results, pdf)
+        
+        # Example: Using CollaGAN model
+        collagan = CollaGAN(n_users, n_items, embedding_dim=10)
+        precisions, recalls, ndcgs, hits, f1_scores, map_scores = collagan.train(convert_to_implicit_format(interactions_matrix.values), test_interactions, epochs=50, batch_size=128)
+        plot_metrics(precisions, recalls, ndcgs, hits, f1_scores, map_scores, 'CollaGAN Model', pdf)
+        # Evaluate CollaGAN model
+        evaluation_results = evaluate_implicit_model_and_return_results(collagan, test_interactions)
+        add_evaluation_results_table('CollaGAN Model', evaluation_results, pdf)
+        
+        # Example: Using ACAE model
+        acae = ACAE(n_users, n_items, embedding_dim=10)
+        precisions, recalls, ndcgs, hits, f1_scores, map_scores = acae.train(interactions_matrix.values, epochs=50, batch_size=128)
+        plot_metrics(precisions, recalls, ndcgs, hits, f1_scores, map_scores, 'ACAE Model', pdf)
+        # Evaluate ACAE model
+        evaluation_results = evaluate_implicit_model_and_return_results(acae, test_interactions)
+        add_evaluation_results_table('ACAE Model', evaluation_results, pdf)
+        
+        # Example: Using APR model
+        apr_model = APRModel(n_users, n_items, embedding_dim=10)
+        optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+        # Train APR model
+        precisions, recalls, ndcgs, hits, f1_scores, map_scores = train_apr(apr_model, optimizer, interactions_matrix.values, epochs=10, batch_size=256, test_interactions=test_interactions)
+        plot_metrics(precisions, recalls, ndcgs, hits, f1_scores, map_scores, 'APR Model', pdf)
+        # Evaluate APR model
+        evaluation_results = evaluate_implicit_model_and_return_results(apr_model, test_interactions)
+        add_evaluation_results_table('APR Model', evaluation_results, pdf)
 if __name__ == "__main__":
     main()

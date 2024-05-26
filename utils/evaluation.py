@@ -1,79 +1,20 @@
 import numpy as np
 
-def precision_at_k(model, interactions, k):
-    precisions = []
-    for user in range(interactions.shape[0]):
-        user_interactions = interactions[user].nonzero()[0]
-        if hasattr(model, 'autoencoder'):
-            scores = model.predict(np.array([interactions[user]])).flatten()
-        else:
-            scores = model.predict(np.array([user]), np.arange(interactions.shape[1])).reshape(-1)
-        top_k = np.argsort(scores)[-k:][::-1]
-        precisions.append(len(set(top_k) & set(user_interactions)) / k)
-    return np.mean(precisions)
+def dcg(relevance_scores):
+    return np.sum([(2**rel - 1) / np.log2(idx + 2) for idx, rel in enumerate(relevance_scores)])
 
-def recall_at_k(model, interactions, k):
-    recalls = []
-    num_users, num_items = interactions.shape
-    for user in range(interactions.shape[0]):
-        print(user)
-        user_interactions = interactions[user].nonzero()[0]
-        if hasattr(model, 'autoencoder'):
-            scores = model.predict(np.array([interactions[user]])).flatten()
-        else:
-            scores = model.predict(np.array([user]), np.arange(num_items)).reshape(-1)
-        top_k = np.argsort(scores)[-k:][::-1]
-        recalls.append(len(set(top_k) & set(user_interactions)) / len(user_interactions) if len(user_interactions) > 0 else 0)
-    return np.mean(recalls)
-
-
-def hit_ratio_at_k(model, interactions, k):
-    hit_ratios = []
-    for user in range(interactions.shape[0]):
-        user_interactions = interactions[user].nonzero()[0]
-        if hasattr(model, 'autoencoder'):
-            scores = model.predict(np.array([interactions[user]])).flatten()
-        else:
-            scores = model.predict(np.array([user]), np.arange(interactions.shape[1])).reshape(-1)
-        top_k = np.argsort(scores)[-k:][::-1]
-        hit_ratios.append(1.0 if len(set(top_k) & set(user_interactions)) > 0 else 0.0)
-    return np.mean(hit_ratios)
-
-def ndcg_at_k(model, interactions, k):
-    def dcg(relevance_scores):
-        return np.sum([(2**rel - 1) / np.log2(idx + 2) for idx, rel in enumerate(relevance_scores)])
-    
-    ndcgs = []
-    for user in range(interactions.shape[0]):
-        user_interactions = interactions[user].nonzero()[0]
-        if len(user_interactions) == 0:
-            continue
-        if hasattr(model, 'autoencoder'):
-            scores = model.predict(np.array([interactions[user]])).flatten()
-        else:
-            scores = model.predict(np.array([user]), np.arange(interactions.shape[1])).reshape(-1)
-        top_k = np.argsort(scores)[-k:][::-1]
-        relevance_scores = [1 if item in user_interactions else 0 for item in top_k]
-        ideal_relevance_scores = sorted(relevance_scores, reverse=True)
-        if dcg(ideal_relevance_scores) == 0:
-            ndcgs.append(0)
-        else:
-            ndcgs.append(dcg(relevance_scores) / dcg(ideal_relevance_scores))
-    return np.mean(ndcgs)
-
-def map_at_k(model, interactions, k):
+def map(model, test_interaction, k=10):
     aps = []
-    for user in range(interactions.shape[0]):
-        user_interactions = interactions[user].nonzero()[0]
-        if hasattr(model, 'autoencoder'):
-            scores = model.predict(np.array([interactions[user]])).flatten()
-        else:
-            scores = model.predict(np.array([user]), np.arange(interactions.shape[1])).reshape(-1)
-        top_k = np.argsort(scores)[-k:][::-1]
+    for user in range(test_interaction.shape[0]):
+        user_interaction = test_interaction[user].nonzero()[1]
+        if len(user_interaction) == 0:
+            continue
+        scores = model.recommend(user, test_interaction, N=k, filter_already_liked_items=False)
+        top_k_items = [x[0] for x in scores]
         hits = 0
         precisions = []
-        for i, item in enumerate(top_k):
-            if item in user_interactions:
+        for i, item in enumerate(top_k_items):
+            if item in user_interaction:
                 hits += 1
                 precisions.append(hits / (i + 1))
         if precisions:
@@ -82,10 +23,44 @@ def map_at_k(model, interactions, k):
             aps.append(0)
     return np.mean(aps)
 
+def eval_at_k(model, test_interactions, k=10):
+    recalls = []
+    precisions = []
+    ndcgs = []
+    hits = []
+    for user in range(test_interactions.shape[0]):
+        user_interactions = test_interactions[user].nonzero()[1]
+        if len(user_interactions) == 0:
+            continue
+        scores = model.recommend(user, test_interactions, N=k, filter_already_liked_items=False)
+        top_k_items = [x[0] for x in scores]
+        hits.append(1.0 if len(set(top_k_items) & set(user_interactions)) > 0 else 0.0)
+        precisions.append(len(set(top_k_items) & set(user_interactions)) / k)
+        recalls.append(len(set(top_k_items) & set(user_interactions)) / len(user_interactions))
+        relevance_scores = [1 if item in user_interactions else 0 for item in top_k_items]
+        ideal_relevance_scores = sorted(relevance_scores, reverse=True)
+        if dcg(ideal_relevance_scores) == 0:
+            ndcgs.append(0)
+        else:
+            ndcgs.append(dcg(relevance_scores) / dcg(ideal_relevance_scores))
+    return np.mean(precisions), np.mean(recalls), np.mean(ndcgs), np.mean(hits)
+
 def f1_score_at_k(model, interactions, k):
-    precision = precision_at_k(model, interactions, k)
-    recall = recall_at_k(model, interactions, k)
+    precision, recall , _ ,_= eval_at_k(model, interactions, k)
+    
     if precision + recall == 0:
         return 0
     else:
         return 2 * (precision * recall) / (precision + recall)
+def evaluate_implicit_model(model, interactions, k=10):
+    precisions, recalls, ndcgs, hits = eval_at_k(model, interactions, k)
+    maps = map(model, interactions, k)
+    f1_score = f1_score_at_k(model, interactions, k)
+    print(f'Precision@{k}: {precisions}')
+    print(f'Recall@{k}: {recalls}')
+    print(f'NDCG@{k}: {ndcgs}')
+    print(f'Hit Score@{k}: {hits}')
+    print(f'F1 Score@{k}: {f1_score}')
+    print(f'MAP@{k}: {maps}')
+    return precisions, recalls, ndcgs, hits, f1_score, maps
+
