@@ -39,6 +39,19 @@ class APRModel(tf.keras.Model):
         adv_loss = -tf.reduce_mean(tf.math.log(tf.nn.sigmoid(pos_score - neg_score) + epsilon))
         
         return adv_loss, adv_noise
+    def recommend(self, user, user_items, N=10, filter_already_liked_items=True):
+        user_vector = np.eye(self.num_users)[user:user+1]
+        user_embedding = self.user_embedding(tf.convert_to_tensor([user], dtype=tf.int32))
+        all_item_embeddings = self.item_embedding.embeddings
+        
+        scores = tf.reduce_sum(user_embedding * all_item_embeddings, axis=1).numpy().flatten()
+        
+        if filter_already_liked_items:
+            liked_items = user_items[user].nonzero()[1]
+            scores[liked_items] = -np.inf
+        
+        top_items = np.argsort(-scores)[:N]
+        return [(item, scores[item]) for item in top_items]
     
     def train_step(self, user_inputs, pos_item_inputs, neg_item_inputs, optimizer):
         with tf.GradientTape() as tape:
@@ -78,16 +91,3 @@ def train_apr(model, optimizer, interactions, epochs, batch_size):
         ndcgs.append(ndcg)
         hits.append(hit)
     return precisions, recalls, ndcgs, hits, f1_scores, map_scores
-def recommend(self, user, user_items, N=10, filter_already_liked_items=True):
-        user_vector = np.eye(self.num_users)[user:user+1]
-        user_embedding = self.user_embedding(tf.convert_to_tensor([user], dtype=tf.int32))
-        all_item_embeddings = self.item_embedding.embeddings
-        
-        scores = tf.reduce_sum(user_embedding * all_item_embeddings, axis=1).numpy().flatten()
-        
-        if filter_already_liked_items:
-            liked_items = user_items[user].nonzero()[1]
-            scores[liked_items] = -np.inf
-        
-        top_items = np.argsort(-scores)[:N]
-        return [(item, scores[item]) for item in top_items]
