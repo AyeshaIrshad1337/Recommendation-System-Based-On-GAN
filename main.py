@@ -110,10 +110,10 @@ def main():
         # Example: Using BPR model from implicit library
         model = implicit.bpr.BayesianPersonalizedRanking(factors=10, iterations=100)
         model.fit(train_interactions)
-        # Evaluate BPR model
+        # # Evaluate BPR model
         evaluation_results = evaluate_implicit_model_and_return_results(model, test_interactions)
         add_evaluation_results_table('BPR Model', evaluation_results, pdf)
-        epochs=100
+        epochs=20
         # Example: Using AMR model
         bpr_model = BPRModel(n_users, n_items, embedding_dim=10)
         optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
